@@ -1,8 +1,7 @@
 import asyncio
 import random
 from datetime import datetime, timezone
-import json
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -699,40 +698,124 @@ COPILOT_PRESETS = {
 async def copilot_query(payload: CopilotQuery):
     query_lower = payload.query.lower().strip()
     
-    # Check presets
-    for preset_key, preset_val in COPILOT_PRESETS.items():
-        if preset_key in query_lower or query_lower in preset_key:
-            return CopilotResponse(content=preset_val)
+    # 1. Custom matches for INC-0420 attack chain / details
+    if "inc-0420" in query_lower:
+        if any(kw in query_lower for kw in ["attack chain", "chain", "evidence", "investigate", "details", "explain", "why"]):
+            return CopilotResponse(content=COPILOT_PRESETS["show me the full attack chain for inc-0420"])
             
-    # Context-aware search (smart fallback)
+    # 2. Custom matches for INC-0417 attack chain / details
+    if "inc-0417" in query_lower:
+        if any(kw in query_lower for kw in ["attack chain", "chain", "evidence", "investigate", "details", "explain", "why"]):
+            return CopilotResponse(content=COPILOT_PRESETS["show me the full attack chain for inc-0417"])
+
+    # 3. Custom matches for Quantum Harvest Indicators
+    if "quantum" in query_lower:
+        if any(kw in query_lower for kw in ["indicator", "ioc", "sign", "signal", "harvest", "threat", "risk", "attack"]):
+            return CopilotResponse(content=COPILOT_PRESETS["what are the indicators of the quantum harvest attack?"])
+
+    # 4. Custom matches for Dormant account access
+    if "dormant" in query_lower:
+        return CopilotResponse(content=COPILOT_PRESETS["which employees accessed dormant accounts this week?"])
+
+    # 5. Custom matches for EMP-0231 trend
+    if "emp-0231" in query_lower and "trend" in query_lower:
+        return CopilotResponse(content=COPILOT_PRESETS["what is the risk score trend for emp-0231?"])
+
+    # 6. List incidents
+    if any(kw in query_lower for kw in ["list incidents", "active incidents", "show all incidents", "show incidents", "all incidents", "incidents"]):
+        content = (
+            "### 📋 Active Security Incidents\n\n"
+            "Here is the list of currently tracked security incidents in the environment:\n\n"
+            "| Incident ID | Intent Label | Risk Score | Status | Created At |\n"
+            "|-------------|--------------|------------|--------|------------|\n"
+        )
+        for inc in incidents_db:
+            risk_emoji = "🔴" if inc.risk_score >= 0.85 else ("🟡" if inc.risk_score >= 0.6 else "🟢")
+            content += f"| `{inc.id}` | {inc.intent_label} | {risk_emoji} {inc.risk_score:.2f} | `{inc.status}` | {inc.created_at} |\n"
+        content += "\nTo investigate a specific incident, query its ID (e.g. `Show me INC-0420`)."
+        return CopilotResponse(content=content)
+
+    # 7. List entities
+    if any(kw in query_lower for kw in ["list entities", "monitored entities", "show entities", "all entities", "critical entities", "entities"]):
+        content = (
+            "### 👤 Monitored System Entities\n\n"
+            "Here is the list of active entities and their evaluated risk profiles:\n\n"
+            "| Entity ID | Name | Type | Role / Access | Risk Score |\n"
+            "|-----------|------|------|---------------|------------|\n"
+        )
+        for ent in entities_db:
+            risk_pct = ent.risk_score * 100
+            risk_emoji = "🔴" if ent.risk_score >= 0.85 else ("🟡" if ent.risk_score >= 0.5 else "🟢")
+            role_access = f"{ent.role or ''} / {ent.access_level or ''}".strip(" /") or "N/A"
+            content += f"| `{ent.id}` | {ent.name} | `{ent.type}` | {role_access} | {risk_emoji} {risk_pct:.0f}% |\n"
+        content += "\nTo inspect any entity profile, search for their name or ID (e.g. `Show profile for Rajesh Mehta` or `EMP-0231`)."
+        return CopilotResponse(content=content)
+
+    # 8. System metrics and overview
+    if any(kw in query_lower for kw in ["system data", "metrics", "stats", "active models", "models", "overall stats", "performance", "average response time", "events processed"]):
+        # recalculate metrics
+        metrics_db.activeIncidents = len([i for i in incidents_db if i.status != 'resolved'])
+        metrics_db.criticalEntities = len([e for e in entities_db if e.risk_score >= 0.8])
+        content = (
+            "### 📊 Sentinel Nexus System Performance & Threat Metrics\n\n"
+            "Here is the current state of the cybersecurity telemetry correlation system:\n\n"
+            "| Metric | Current Value | Description |\n"
+            "|--------|---------------|-------------|\n"
+            f"| **Active Incidents** | {metrics_db.activeIncidents} | Open or active security threat investigations |\n"
+            f"| **Critical Entities** | {metrics_db.criticalEntities} | Entities with evaluated risk score > 80% |\n"
+            f"| **Events Processed** | {metrics_db.eventsProcessed:,} | Telemetry events correlated in feature store |\n"
+            f"| **Avg Response Time** | {metrics_db.avgResponseTime:.2f}s | Mean automated alert-to-investigation duration |\n"
+            f"| **Entities Monitored** | {metrics_db.entitiesMonitored:,} | Total network, database, user, and device nodes |\n"
+            f"| **Active ML Models** | {metrics_db.modelsActive} | Anomaly detection & graph embedding models running |\n\n"
+            "**Active ML/AI Models in Pipeline:**\n"
+            "- **Isolation Forest**: Flagging multi-dimensional outliers in feature store behavior DNA\n"
+            "- **XGBoost Classifier**: Supervised classification of transactional fraud pattern history\n"
+            "- **GraphSAGE**: Relational graph neural network propagating entity risk scores across neighbors\n"
+            "- **LSTM Neural Net**: Sequence prediction modeling anomaly steps in causal network paths\n"
+            "- **Quantum Risk Monitor**: Tracking TLS downgrade behaviors and harvest-now-decrypt-later indicators"
+        )
+        return CopilotResponse(content=content)
+
     # Check if querying specific incident
     for inc in incidents_db:
         if inc.id.lower() in query_lower:
+            actions_list = "\n".join([f"- {action}" for action in inc.recommended_actions])
             return CopilotResponse(content=(
-                f"**{inc.id} Status and Evidence Analysis**\n\n"
+                f"### 🔍 Investigation Details for {inc.id}\n\n"
                 f"- **Intent Label**: `{inc.intent_label}`\n"
-                f"- **Risk Score**: `{inc.risk_score}`\n"
-                f"- **Current Status**: `{inc.status}`\n"
-                f"- **Entities Involved**: {', '.join(inc.entities_involved)}\n\n"
-                f"**Top SHAP Evidence Features**:\n"
-                + "\n".join([f"- `{ev.feature}`: {ev.value} ({ev.direction})" for ev in inc.top_evidence]) +
-                f"\n\n**Causal Chain Steps**:\n"
-                + "\n".join([f"{idx+1}. **{step.time}** [{step.system}] {step.label}" for idx, step in enumerate(inc.causal_chain)])
+                f"- **Evaluated Risk Score**: `{inc.risk_score}`\n"
+                f"- **Investigation Status**: `{inc.status}`\n"
+                f"- **Involved Entities**: {', '.join([f'`{e}`' for e in inc.entities_involved])}\n\n"
+                f"#### 📊 CONTRIBUTING SHAP EVIDENCE\n\n"
+                f"| Feature Name | Value / Z-score | Correlation Direction |\n"
+                f"|--------------|-----------------|-----------------------|\n"
+                + "\n".join([f"| `{ev.feature}` | {ev.value:.2f} | {ev.direction} |" for ev in inc.top_evidence]) +
+                "\n\n#### ⛓️ CORRELATED ATTACK STEPS (CAUSAL CHAIN)\n\n"
+                + "\n".join([f"{idx+1}. **{step.time}** `[{step.system}]` {step.label}" for idx, step in enumerate(inc.causal_chain)]) +
+                f"\n\n#### 🛡️ RECOMMENDED MITIGATION ACTIONS\n\n"
+                f"{actions_list}"
             ))
-            
+
     # Check if querying specific entity
     for ent in entities_db:
         if ent.id.lower() in query_lower or ent.name.lower() in query_lower:
-            initial_stats = f"**Entity Profile: {ent.name} ({ent.id})**\n\n"
-            initial_stats += f"- **Type**: `{ent.type}`\n"
-            if ent.role:
-                initial_stats += f"- **Role**: `{ent.role}`\n"
-            initial_stats += f"- **Risk Score**: `{(ent.risk_score*100):.0f}`\n"
-            initial_stats += f"- **Last Activity**: `{ent.last_activity}`\n\n"
+            role_str = f" ({ent.role})" if ent.role else ""
+            content = (
+                f"### 👤 Profile Details: {ent.name}{role_str}\n\n"
+                f"- **Entity ID**: `{ent.id}`\n"
+                f"- **Type**: `{ent.type}`\n"
+                f"- **Department**: `{ent.department or 'N/A'}`\n"
+                f"- **Branch Location**: `{ent.branch or 'N/A'}`\n"
+                f"- **Access Control Level**: `{ent.access_level or 'Standard'}`\n"
+                f"- **Evaluated Risk Score**: `{(ent.risk_score*100):.0f}%` (Ranked: **{'High' if ent.risk_score > 0.8 else 'Medium' if ent.risk_score > 0.3 else 'Low'}**)\n"
+                f"- **Last Monitored Activity**: `{ent.last_activity}`\n\n"
+            )
             if ent.features:
-                initial_stats += "**Key Feature Deviations**:\n"
-                initial_stats += "\n".join([f"- `{f.name}`: value={f.value}, deviation={(f.deviation*100):.0f}%" for f in ent.features])
-            return CopilotResponse(content=initial_stats)
+                content += "#### 🧬 BEHAVIOR DNA FEATURE DEVIATIONS\n\n"
+                content += "| Feature Name | Current Value | Deviation from Baseline |\n"
+                content += "|--------------|---------------|-------------------------|\n"
+                content += "\n".join([f"| `{f.name}` | {f.value:.2f} | {f.deviation*100:+.1f}% |" for f in ent.features])
+            return CopilotResponse(content=content)
 
     # General fallback response
     return CopilotResponse(content=(
@@ -763,7 +846,7 @@ async def websocket_endpoint(websocket: WebSocket):
         })
         while True:
             # Keep-alive loop or receive client updates if needed
-            data = await websocket.receive_text()
+            await websocket.receive_text()
             # Echo or process client command if any
     except WebSocketDisconnect:
         manager.disconnect(websocket)
