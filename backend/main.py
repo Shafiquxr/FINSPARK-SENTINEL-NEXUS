@@ -488,7 +488,15 @@ async def incident_generator_loop():
             status="open",
             entities_involved=template["entities_involved"],
             causal_chain=chain_steps,
-            top_evidence=[Evidence(**ev) for ev in template["top_evidence"]],
+            top_evidence=[
+                Evidence(
+                    feature=str(ev["feature"]),
+                    value=float(ev["value"]),
+                    direction=str(ev["direction"])
+                )
+                for ev in template["top_evidence"]
+                if isinstance(ev, dict)
+            ],
             recommended_actions=template["recommended_actions"],
             created_at=created_at_iso
         )
